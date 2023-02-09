@@ -6,11 +6,11 @@ import importlib
 
 importlib.reload(consts)
 
-ITEM_IDS = pd.read_csv("../data/icu/d_items.csv")
-D_ICD_DIAGNOSIS = pd.read_csv("../data/hosp/d_icd_diagnoses.csv")
-DIAGNOSES_ICD = pd.read_csv("../data/hosp/diagnoses_icd.csv")
-PATIENTS = pd.read_csv("../data/core/patients.csv")
-LABITEMS = pd.read_csv("../data/hosp/d_labitems.csv")
+# ITEM_IDS = pd.read_csv("../data/icu/d_items.csv")
+# D_ICD_DIAGNOSIS = pd.read_csv("../data/hosp/d_icd_diagnoses.csv")
+# DIAGNOSES_ICD = pd.read_csv("../data/hosp/diagnoses_icd.csv")
+# PATIENTS = pd.read_csv("../data/core/patients.csv")
+# LABITEMS = pd.read_csv("../data/hosp/d_labitems.csv")
 
 
 def get_chartevents_itemids():
