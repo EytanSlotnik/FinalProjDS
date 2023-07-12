@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 
 
@@ -52,11 +53,20 @@ def load_bp(num_of_pats=300):
     bp_big = bp[bp["hospitalid"].isin(drug.groupby("hospitalid")["patientunitstayid"].nunique().sort_values()[
                                           drug.groupby("hospitalid")[
                                               "patientunitstayid"].nunique().sort_values() > num_of_pats].index)]
+    # filter sru to contain only patients from bp_big
+    drug = drug[drug["patientunitstayid"].isin(bp_big["stay_id"])]
+    drug.to_csv('filtered_drug_eicu.csv', index=False)
+    drug.rename(columns={'infusionoffset': 'cur_bp_time', 'patientunitstayid': 'stay_id'}, inplace=True)
+    bp_big = pd.merge(bp_big, drug, on=['stay_id', 'cur_bp_time'], how='outer')
+    bp_big = bp_big.sort_values(by=["stay_id", "cur_bp_time"])
+    bp_big['drugrate'] = bp_big.groupby('stay_id')['drugrate'].transform(lambda x: x.ffill())
+    bp_big['infusionrate'] = bp_big.groupby('stay_id')['infusionrate'].transform(lambda x: x.ffill())
+
     return bp_big
 
 
 def smooth_outliers(big_bp: pd.DataFrame, threshold_constant=3):
-    for i in range(3, 4):
+    for i in [3, 5, 10]:
         big_bp["rolling_" + str(i)] = big_bp.groupby("stay_id")["cur_bp"].rolling(i).mean().reset_index(0, drop=True)
         # replace NaN with the original value
         big_bp["rolling_" + str(i)] = big_bp["rolling_" + str(i)].fillna(big_bp["cur_bp"])
@@ -74,8 +84,96 @@ def smooth_outliers(big_bp: pd.DataFrame, threshold_constant=3):
     return big_bp
 
 
+def remove_one_time_jumps(bp_df, jump_threshold=15, distance_threshold=15):
+    # filter pat's bp from values that are have jumps > 15 and are close to the x->-x line
+    bp_df.loc[:, 'otj_filter'] = bp_df.loc[:, 'cur_bp']
+
+    bp_df.loc[bp_df['interval'] > 5, 'otj_filter'] = np.nan
+
+    jumps = np.r_[bp_df['otj_filter'][1:].values - bp_df['otj_filter'][:-1].values, [np.nan]]
+    bi_jump = np.c_[jumps[:-1], jumps[1:]]
+    bi_jump = np.r_[[[np.nan, np.nan]], bi_jump]
+    # project bi_jump on x->-x line
+    proj_bi_jump = np.outer([np.sqrt(1 / 2), -np.sqrt(1 / 2)], [np.sqrt(1 / 2), -np.sqrt(1 / 2)]) @ bi_jump.T
+
+    distances = np.linalg.norm(bi_jump - proj_bi_jump.T, axis=1)
+
+    bp_df.loc[(np.abs(bi_jump[:, 0]) > jump_threshold) & (distances < distance_threshold), 'otj_filter'] = np.nan
+    bp_df['distances'] = distances
+    bp_df['jump'] = jumps
+    return bp_df
+
+
+def smooth_with_rolling_gaussian_proccess(bp_df, sigma=2, length_scale=1, alpha=1, window_size=10):
+    from sklearn.gaussian_process import GaussianProcessRegressor
+    from sklearn.gaussian_process.kernels import RBF, PairwiseKernel, ConstantKernel, WhiteKernel
+
+    s = None
+    def rolling_gp(x: pd.DataFrame, kernel, alpha=1):
+        gp = GaussianProcessRegressor(kernel=kernel, alpha=alpha)
+
+        def gp_with_dropna(y: pd.DataFrame):
+            ynna = y.dropna()
+            if len(ynna) == 0:
+                return y[s]
+            gp.fit(ynna['cur_bp_time'].values.reshape(-1, 1), ynna['otj_filter'])
+            y[s] = gp.predict(y['cur_bp_time'].values.reshape(-1, 1))
+            return y[s]
+
+        pp = x.groupby(x.index // window_size).apply(gp_with_dropna).reset_index(0, drop=True)
+        x[s] = pp
+        return x[s]
+
+    sigma, alpha, l = 0.1, 0.1, 0.1
+    s = f'gp_sigma-{sigma}_l-{l}_alp-{alpha}'
+    bp_df[s] = 0
+    k = bp_df[['stay_id', 'cur_bp_time', 'otj_filter', s]].groupby(['stay_id']).apply(
+        lambda x: pd.Series(rolling_gp(x, kernel=sigma * RBF(sigma),
+                                       alpha=alpha)))
+    bp_df['gp'] = k.reset_index(0, drop=True)
+
+    sigma, alpha, l = 0.1, 0.1, 10
+    s = f'gp_sigma-{sigma}_l-{l}_alp-{alpha}'
+    bp_df[s] = 0
+    k = bp_df[['stay_id', 'cur_bp_time', 'otj_filter', s]].groupby(['stay_id']).apply(
+        lambda x: pd.Series(rolling_gp(x, kernel=sigma * RBF(sigma),
+                                       alpha=alpha)))
+    bp_df['gp'] = k.reset_index(0, drop=True)
+
+    sigma, alpha, l = 2, 0.1, 5
+    s = f'gp_sigma-{sigma}_l-{l}_alp-{alpha}'
+    bp_df[f'gp_sigma-{sigma}_l-{l}_alp-{alpha}'] = 0
+    k = bp_df[['stay_id', 'cur_bp_time', 'otj_filter', 'gp']].groupby(['stay_id']).apply(
+        lambda x: pd.Series(rolling_gp(x, kernel=sigma * RBF(sigma),
+                                       alpha=alpha)))
+    bp_df['gp'] = k.reset_index(0, drop=True)
+    return bp_df
+
+
+def add_rolling_statistics(bp_df: pd.DataFrame, window_size=10):
+    bp_df[f'rolling_{window_size}_mean'] = bp_df.groupby("stay_id")["cur_bp"].rolling(window_size,
+                                                                                      center=True).mean().reset_index(0,
+                                                                                                                      drop=True)
+    bp_df[f'rolling_{window_size}_std'] = bp_df.groupby("stay_id")["cur_bp"].rolling(window_size,
+                                                                                     center=True).std().reset_index(0,
+                                                                                                                    drop=True)
+    bp_df[f'rolling_{window_size}_min'] = bp_df.groupby("stay_id")["cur_bp"].rolling(window_size,
+                                                                                     center=True).min().reset_index(0,
+                                                                                                                    drop=True)
+    bp_df[f'rolling_{window_size}_max'] = bp_df.groupby("stay_id")["cur_bp"].rolling(window_size,
+                                                                                     center=True).max().reset_index(0,
+                                                                                                                    drop=True)
+    bp_df[f'rolling_{window_size}_median'] = bp_df.groupby("stay_id")["cur_bp"].rolling(
+        window_size, center=True).median().reset_index(0, drop=True)
+    return bp_df
+
+
 if __name__ == "__main__":
     big_bp = load_bp(num_of_pats=50)
-    big_bp.to_csv("../preprocess/big_bp_eicu.csv", index=False)
-    smooth_bp = smooth_outliers(big_bp)
-    smooth_bp.to_csv("../preprocess/smooth_bp_eicu.csv", index=False)
+    big_bp = smooth_outliers(big_bp)
+    big_bp = remove_one_time_jumps(big_bp)
+    big_bp = smooth_with_rolling_gaussian_proccess(big_bp)
+    big_bp = add_rolling_statistics(big_bp)
+    # big_bp = pd.read_csv("../preprocess/smooth_bp_eicu2.csv", nrows=100000)
+    big_bp = smooth_with_rolling_gaussian_proccess(big_bp, window_size=50)
+    big_bp.to_csv("../preprocess/smooth_bp_eicu22.csv", index=False)
