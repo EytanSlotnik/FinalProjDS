@@ -2,8 +2,8 @@ import numpy as np
 import pandas as pd
 
 
-def load_bp(num_of_pats=300):
-    drug = pd.read_csv("../data/eICU/infusiondrug.csv")
+def load_bp(num_of_pats=300, bp_max=185, bp_min=30):
+    drug = pd.read_csv("../data/eICU/infusiondrug.csv", low_memory=False)
     diagnosis = pd.read_csv("../data/eICU/diagnosis.csv")
     patients_weight = pd.read_csv("../data/eICU/patient.csv")[["patientunitstayid", "admissionweight"]]
     patient = pd.read_csv("../data/eICU/patient.csv")
@@ -34,6 +34,8 @@ def load_bp(num_of_pats=300):
     drug = drug.sort_values(by=["patientunitstayid", "infusionoffset"])
 
     bp = pd.read_csv("../preprocess/filtered_bp_eicu.csv")
+    bp = bp[bp["cur_bp"] < bp_max]
+    bp = bp[bp["cur_bp"] > bp_min]
     bp = bp.sort_values(by=["stay_id", "cur_bp_time"])
     bp = bp[bp["stay_id"].isin(drug["patientunitstayid"])]
     bp["next_bp_time"] = bp.groupby("stay_id")["cur_bp_time"].shift(-1)
@@ -61,26 +63,80 @@ def load_bp(num_of_pats=300):
     bp_big = bp_big.sort_values(by=["stay_id", "cur_bp_time"])
     bp_big['drugrate'] = bp_big.groupby('stay_id')['drugrate'].transform(lambda x: x.ffill())
     bp_big['infusionrate'] = bp_big.groupby('stay_id')['infusionrate'].transform(lambda x: x.ffill())
+    bp_big['drugamount'] = bp_big.groupby('stay_id')['drugamount'].transform(lambda x: x.ffill())
+    bp_big = bp_big[~bp_big["cur_bp"].isna()]
 
     return bp_big
 
 
-def smooth_outliers(big_bp: pd.DataFrame, threshold_constant=3):
-    for i in [3, 5, 10]:
-        big_bp["rolling_" + str(i)] = big_bp.groupby("stay_id")["cur_bp"].rolling(i).mean().reset_index(0, drop=True)
+def smooth_outliers(big_bp: pd.DataFrame, threshold_constant: float = 3):
+    for i in [3, 5, 10, 15, 20]:
+        # big_bp["rolling_" + str(i)] = big_bp.groupby("stay_id")["cur_bp"].rolling(i, center=True).mean().reset_index(0,
+        #                                                                                                              drop=True)
+        # # replace NaN with the original value
+        # big_bp["rolling_" + str(i)] = big_bp["rolling_" + str(i)].fillna(big_bp["cur_bp"])
+        # big_bp["rolling_" + str(i) + "_res"] = big_bp["cur_bp"] - big_bp["rolling_" + str(i)]
+        # big_bp["rolling_" + str(i) + "_res"] = big_bp["rolling_" + str(i) + "_res"].abs()
+        #
+        # # add column with the median of the residuals
+        # big_bp["rolling_" + str(i) + "_res_median"] = big_bp.groupby("stay_id")["rolling_" + str(i) + "_res"].transform(
+        #     "median")
+        # # add column with outliers removed (outliers are defined as residuals that are 10 times the median)
+        # big_bp["rolling_" + str(i) + "_res_median"] = big_bp["rolling_" + str(i) + "_res_median"] * threshold_constant
+        # big_bp["smooth_" + str(i)] = big_bp["cur_bp"]
+        # big_bp.loc[big_bp["rolling_" + str(i) + "_res"] > big_bp["rolling_" + str(i) + "_res_median"], "smooth_" + str(
+        #     i)] = big_bp["rolling_" + str(i)]
+        #
+        # big_bp["rolling_otj_" + str(i)] = big_bp.groupby("stay_id")["otj_filter"].rolling(i,
+        #                                                                                   center=True).mean().reset_index(
+        #     0, drop=True)
+        # # replace NaN with the original value
+        # big_bp["rolling_otj_" + str(i)] = big_bp["rolling_otj_" + str(i)].fillna(big_bp["otj_filter"])
+        # big_bp["rolling_otj_" + str(i) + "_res"] = big_bp["otj_filter"] - big_bp["rolling_otj_" + str(i)]
+        # big_bp["rolling_otj_" + str(i) + "_res"] = big_bp["rolling_otj_" + str(i) + "_res"].abs()
+        #
+        # # add column with the median of the residuals
+        # big_bp["rolling_otj_" + str(i) + "_res_median"] = big_bp.groupby("stay_id")[
+        #     "rolling_otj_" + str(i) + "_res"].transform(
+        #     "median")
+        # # add column with outliers removed (outliers are defined as residuals that are 10 times the median)
+        # big_bp["rolling_otj_" + str(i) + "_res_median"] = big_bp["rolling_otj_" + str(
+        #     i) + "_res_median"] * threshold_constant
+        # big_bp["smooth_otj_" + str(i)] = big_bp["otj_filter"]
+        # big_bp.loc[
+        #     big_bp["rolling_otj_" + str(i) + "_res"] > big_bp["rolling_otj_" + str(i) + "_res_median"], "smooth_" + str(
+        #         i)] = big_bp["rolling_otj_" + str(i)]
+        big_bp["rolling"] = big_bp.groupby("stay_id")["cur_bp"].rolling(i, center=True).mean().reset_index(0,
+                                                                                                                     drop=True)
         # replace NaN with the original value
-        big_bp["rolling_" + str(i)] = big_bp["rolling_" + str(i)].fillna(big_bp["cur_bp"])
-        big_bp["rolling_" + str(i) + "_res"] = big_bp["cur_bp"] - big_bp["rolling_" + str(i)]
-        big_bp["rolling_" + str(i) + "_res"] = big_bp["rolling_" + str(i) + "_res"].abs()
+        big_bp["rolling"] = big_bp["rolling"].fillna(big_bp["cur_bp"])
+        big_bp["rolling_res"] = big_bp["cur_bp"] - big_bp["rolling"]
+        big_bp["rolling_res"] = big_bp["rolling_res"].abs()
 
         # add column with the median of the residuals
-        big_bp["rolling_" + str(i) + "_res_median"] = big_bp.groupby("stay_id")["rolling_" + str(i) + "_res"].transform(
+        big_bp["rolling_res_median"] = big_bp.groupby("stay_id")["rolling_res"].transform(
             "median")
         # add column with outliers removed (outliers are defined as residuals that are 10 times the median)
-        big_bp["rolling_" + str(i) + "_res_median"] = big_bp["rolling_" + str(i) + "_res_median"] * threshold_constant
+        big_bp["rolling_res_median"] = big_bp["rolling_res_median"] * threshold_constant
         big_bp["smooth_" + str(i)] = big_bp["cur_bp"]
-        big_bp.loc[big_bp["rolling_" + str(i) + "_res"] > big_bp["rolling_" + str(i) + "_res_median"], "smooth_" + str(
-            i)] = big_bp["rolling_" + str(i)]
+        big_bp.loc[big_bp["rolling_res"] > big_bp["rolling_res_median"], "smooth_" + str(
+            i)] = big_bp["rolling"]
+
+        # replace NaN with the original value
+        big_bp["rolling"] = big_bp["rolling"].fillna(big_bp["otj_filter"])
+        big_bp["rolling_res"] = big_bp["otj_filter"] - big_bp["rolling"]
+        big_bp["rolling_res"] = big_bp["rolling_res"].abs()
+
+        # add column with the median of the residuals
+        big_bp["rolling_res_median"] = big_bp.groupby("stay_id")[
+            "rolling_res"].transform(
+            "median")
+        # add column with outliers removed (outliers are defined as residuals that are 10 times the median)
+        big_bp["rolling_res_median"] = big_bp["rolling_res_median"] * threshold_constant
+        big_bp["smooth_otj_" + str(i)] = big_bp["otj_filter"]
+        big_bp.loc[
+            big_bp["rolling_res"] > big_bp["rolling_res_median"], "smooth_otj_" + str(
+                i)] = big_bp["rolling"]
     return big_bp
 
 
@@ -99,6 +155,22 @@ def remove_one_time_jumps(bp_df, jump_threshold=15, distance_threshold=15):
     distances = np.linalg.norm(bi_jump - proj_bi_jump.T, axis=1)
 
     bp_df.loc[(np.abs(bi_jump[:, 0]) > jump_threshold) & (distances < distance_threshold), 'otj_filter'] = np.nan
+
+    params = {
+        (15, 15),
+        (15, 10),
+        (10, 15),
+        (10, 10),
+        (20, 20),
+        (20, 15),
+        (15, 20),
+        (20, 10),
+        (10, 20),
+    }
+    for j_threshold, d_threshold in params:
+        bp_df.loc[:, f'otj_filter_{j_threshold}_{d_threshold}'] = bp_df.loc[:, 'cur_bp']
+        bp_df.loc[(np.abs(bi_jump[:, 0]) > j_threshold) & (
+                    distances < d_threshold), f'otj_filter_{j_threshold}_{d_threshold}'] = np.nan
     bp_df['distances'] = distances
     bp_df['jump'] = jumps
     return bp_df
@@ -109,8 +181,19 @@ def smooth_with_rolling_gaussian_proccess(bp_df, sigma=2, length_scale=1, alpha=
     from sklearn.gaussian_process.kernels import RBF, PairwiseKernel, ConstantKernel, WhiteKernel
 
     s = None
+
     def rolling_gp(x: pd.DataFrame, kernel, alpha=1):
         gp = GaussianProcessRegressor(kernel=kernel, alpha=alpha)
+        # import polynomial fitting from sklearn
+        from sklearn.preprocessing import PolynomialFeatures
+        # import linear regression from sklearn
+        from sklearn.linear_model import LinearRegression
+        # import pipeline from sklearn
+        from sklearn.pipeline import Pipeline
+        # create a pipeline that first transforms the data with polynomial features
+        # and then fits a linear regression model
+        gp = Pipeline([('polynomial_features', PolynomialFeatures(degree=2)),
+                       ('linear_regression', LinearRegression())])
 
         def gp_with_dropna(y: pd.DataFrame):
             ynna = y.dropna()
@@ -170,10 +253,11 @@ def add_rolling_statistics(bp_df: pd.DataFrame, window_size=10):
 
 if __name__ == "__main__":
     big_bp = load_bp(num_of_pats=50)
-    big_bp = smooth_outliers(big_bp)
     big_bp = remove_one_time_jumps(big_bp)
-    big_bp = smooth_with_rolling_gaussian_proccess(big_bp)
+
+    big_bp = smooth_outliers(big_bp, threshold_constant=1.5)
+    # big_bp = smooth_with_rolling_gaussian_proccess(big_bp)
     big_bp = add_rolling_statistics(big_bp)
     # big_bp = pd.read_csv("../preprocess/smooth_bp_eicu2.csv", nrows=100000)
-    big_bp = smooth_with_rolling_gaussian_proccess(big_bp, window_size=50)
-    big_bp.to_csv("../preprocess/smooth_bp_eicu22.csv", index=False)
+    # big_bp = smooth_with_rolling_gaussian_proccess(big_bp, window_size=50)
+    big_bp.to_csv("../preprocess/smooth_bp_eicu2.csv", index=False)
