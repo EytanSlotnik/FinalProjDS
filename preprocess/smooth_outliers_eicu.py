@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 
-def load_bp(num_of_pats=300, bp_max=185, bp_min=30):
+def load_bp(num_of_pats=300, bp_max=160, bp_min=30):
     drug = pd.read_csv("../data/eICU/infusiondrug.csv", low_memory=False)
     diagnosis = pd.read_csv("../data/eICU/diagnosis.csv")
     patients_weight = pd.read_csv("../data/eICU/patient.csv")[["patientunitstayid", "admissionweight"]]
@@ -107,7 +107,7 @@ def smooth_outliers(big_bp: pd.DataFrame, threshold_constant: float = 3):
         #     big_bp["rolling_otj_" + str(i) + "_res"] > big_bp["rolling_otj_" + str(i) + "_res_median"], "smooth_" + str(
         #         i)] = big_bp["rolling_otj_" + str(i)]
         big_bp["rolling"] = big_bp.groupby("stay_id")["cur_bp"].rolling(i, center=True).mean().reset_index(0,
-                                                                                                                     drop=True)
+                                                                                                           drop=True)
         # replace NaN with the original value
         big_bp["rolling"] = big_bp["rolling"].fillna(big_bp["cur_bp"])
         big_bp["rolling_res"] = big_bp["cur_bp"] - big_bp["rolling"]
@@ -170,7 +170,7 @@ def remove_one_time_jumps(bp_df, jump_threshold=15, distance_threshold=15):
     for j_threshold, d_threshold in params:
         bp_df.loc[:, f'otj_filter_{j_threshold}_{d_threshold}'] = bp_df.loc[:, 'cur_bp']
         bp_df.loc[(np.abs(bi_jump[:, 0]) > j_threshold) & (
-                    distances < d_threshold), f'otj_filter_{j_threshold}_{d_threshold}'] = np.nan
+                distances < d_threshold), f'otj_filter_{j_threshold}_{d_threshold}'] = np.nan
     bp_df['distances'] = distances
     bp_df['jump'] = jumps
     return bp_df
@@ -251,13 +251,49 @@ def add_rolling_statistics(bp_df: pd.DataFrame, window_size=10):
     return bp_df
 
 
+def filter_by_nor(bp_df, break_size):
+    # filter all entries after 48 hours
+    first_measurment_time = bp_df.groupby('stay_id').apply(lambda x: x['cur_bp_time'].min())
+    bp_df = bp_df.groupby('stay_id').apply(
+        lambda x: x[(x['cur_bp_time'] <= first_measurment_time[x.name] + 48 * 60)]).reset_index(level=0, drop=True)
+
+    # filter all patients that didn't recive NOR in first 24 hours and entries after NOR wasn't given
+    first_not_time = bp_df.groupby('stay_id').apply(lambda x: x[~x['drugrate'].isna()]['cur_bp_time'].min())
+    patients_with_first_nor_under_24 = first_not_time[first_not_time <= 24 * 60].index
+    bp_df = bp_df[bp_df['stay_id'].isin(patients_with_first_nor_under_24)]
+
+    bp_df['nor_bigger_than_0'] = bp_df.groupby('stay_id').apply(lambda x: x['drugrate'] > 0).reset_index(level=0,
+                                                                                                         drop=True)
+    # find the largest cur_bp_time that nor_bigger_than_0 is true
+    last_nor_time = bp_df.groupby('stay_id').apply(lambda x: x.loc[x['nor_bigger_than_0'], 'cur_bp_time'].max())
+
+    # filer all rows with cur_bp_time that is larger than last_nor_time
+    bp_df = bp_df.groupby('stay_id').apply(lambda x: x[(x['cur_bp_time'] <= last_nor_time[x.name])]).reset_index(
+        level=0,
+        drop=True)
+
+    # remove all rows after a break larger than break_size
+    a = bp_df.groupby('stay_id').apply(lambda x: x['interval'].cummax()).reset_index(level=0, drop=True)
+    bp_df['cummax_interval'] = a
+
+    # filter all rows with cummax_interval that is larger than 30
+    bp_df = bp_df[bp_df['cummax_interval'] <= break_size]
+    return bp_df
+
+
 if __name__ == "__main__":
     big_bp = load_bp(num_of_pats=50)
+    big_bp = filter_by_nor(big_bp, break_size=30)
+
     big_bp = remove_one_time_jumps(big_bp)
 
     big_bp = smooth_outliers(big_bp, threshold_constant=1.5)
     # big_bp = smooth_with_rolling_gaussian_proccess(big_bp)
-    big_bp = add_rolling_statistics(big_bp)
+    big_bp = add_rolling_statistics(big_bp, window_size=3)
+    big_bp = add_rolling_statistics(big_bp, window_size=5)
+    big_bp = add_rolling_statistics(big_bp, window_size=7)
+    big_bp = add_rolling_statistics(big_bp, window_size=10)
+    big_bp = add_rolling_statistics(big_bp, window_size=20)
     # big_bp = pd.read_csv("../preprocess/smooth_bp_eicu2.csv", nrows=100000)
     # big_bp = smooth_with_rolling_gaussian_proccess(big_bp, window_size=50)
     big_bp.to_csv("../preprocess/smooth_bp_eicu2.csv", index=False)
