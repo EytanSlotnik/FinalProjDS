@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 
 BP_RANGES = ((0, 49), (50, 59), (60, 64), (65, 69), (70, 74), (75, 79),
              (80, 89), (90, 200))
@@ -11,10 +12,12 @@ def default_spliter(df, titles=None):
 
 # Split data into dfs by unit
 def get_bp_by_unit(df, titles=None):
-    units = df['unittype_x'].unique()
-    if titles:
-        units = [unit + '<br>&<br>' + titles for unit in units]
+    # units = df['unittype_x'].unique()
+    units = ['Med-Surg ICU', 'MICU', 'SICU']
     by_unit = [df[df['unittype_x'] == unit] for unit in units]
+    if titles:
+        units = [unit + ' &<br>' + titles for unit in units]
+
     return by_unit, units
 
 
@@ -22,7 +25,7 @@ def get_bp_by_unit(df, titles=None):
 def get_bp_by_sections(df, titles=None):
     bins = [f'MAP {m}' for m in BP_RANGES]
     if titles:
-        bins = [bin_ + '<br>&<br>' + titles for bin_ in bins]
+        bins = [bin_ + ' &<br>' + titles for bin_ in bins]
     bp_sections = []
     for i, bp_range in enumerate(BP_RANGES):
         bp_low, bp_high = bp_range
@@ -85,13 +88,6 @@ def get_bp_by_nor_change_with_direction(df, titles=None):
     if titles:
         changes = [change + '<br>&<br>' + titles for change in changes]
 
-    merged_df = pd.merge(split_df[0], split_df[1], how='inner')
-
-    # Check if the merged DataFrame has any rows
-    if not merged_df.empty:
-        print("Matching rows exist between the two DataFrames.")
-    else:
-        print("No matching rows between the two DataFrames.")
     return split_df, changes
 
 
@@ -113,3 +109,29 @@ def apply_split_functions(data, split_functions):
 
     return dfs, titles
 
+
+# group by bp ranges and calculate mean and std
+def group_by_sections_mean_std(df, titles=None):
+    if not titles:
+        titles = ['mean', 'var']
+    else:
+        titles = [titles]
+    mean_df = pd.DataFrame(columns=['cur_bp', 'drugrate', 'type'])
+    var_df = pd.DataFrame(columns=['cur_bp', 'drugrate', 'type'])
+    for bp_range in np.arange(40, 100):
+        bp_section = df[df["cur_bp"] == bp_range]
+        mean_drugrate = bp_section['drugrate'].mean()
+        var_drugrate = bp_section['drugrate'].var()
+        if not pd.isna(mean_drugrate):
+            mean_df = mean_df.append({
+                'cur_bp': bp_range,
+                'drugrate': mean_drugrate,
+                'type': 'mean',
+            }, ignore_index=True)
+        if not pd.isna(var_drugrate):
+            var_df = var_df.append({
+                'cur_bp': bp_range,
+                'drugrate': var_drugrate,
+                'type': 'var',
+            }, ignore_index=True)
+    return [mean_df, var_df], titles

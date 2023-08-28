@@ -4,6 +4,8 @@ from plotly.subplots import make_subplots
 
 from FinalProjDS.plots23.spliters import apply_split_functions
 
+BP_RANGES = ((0, 49), (50, 59), (60, 64), (65, 69), (70, 74), (75, 79),
+             (80, 89), (90, 200))
 X_BIN_SIZE = 1
 Y_BIN_SIZE = 1
 Y_START = {1: 0.5, 2: 0.85, 8: 0.96, 16: 0.985}
@@ -129,8 +131,8 @@ def box_plot(data, file_name, split_funcs, title):
     fig.write_html(f'graphs/boxPlots/{file_name}.html')
 
 
-# Create correlation heatmap of MAP and Drugrate for each sub df
 def corr_plot(data, file_name, split_funcs, title):
+    # Create correlation heatmap of MAP and Drugrate for each sub df
     dfs, titles = apply_split_functions(data, split_funcs)
     rows = int(np.ceil(len(titles) / 2))
     fig = make_subplots(rows, 2,
@@ -152,3 +154,88 @@ def corr_plot(data, file_name, split_funcs, title):
 
     fig.update_layout(title=title)
     fig.write_html(f'graphs/correlation-heatmaps/{file_name}.html')
+
+
+# Create scatter plot of data with fitted polynomial of selected degrees
+def poly_fit_plot(data, file_name, split_funcs, degrees):
+    dfs, titles = apply_split_functions(data, split_funcs)
+    rows = len(titles)
+    mean_fig = make_subplots(rows, 1, subplot_titles=titles)
+    var_fig = make_subplots(rows, 1, subplot_titles=titles)
+    full_fig = go.Figure()
+    mean_count = 0
+    var_count = 0
+    for df in dfs:
+        type_ = df.iloc[0]['type']
+        X = df['cur_bp'].values.astype(np.float64)
+        y = df['drugrate'].values.astype(np.float64)
+        # Create a scatter plot for the original data
+        data_trace = go.Scatter(x=X, y=y,
+                                mode='markers', name='data')
+        if type_ == 'mean':
+            data_trace.name = titles[mean_count]
+            mean_count += 1
+            mean_fig.add_trace(data_trace, row=mean_count, col=1)
+
+        if type_ == 'var':
+            data_trace.name = titles[var_count]
+            var_count += 1
+            var_fig.add_trace(data_trace, row=var_count, col=1)
+
+        full_fig.add_trace(data_trace)
+
+        if df.shape[0] == 0:
+            continue
+        for degree in degrees:
+            print(degree)
+            # Fit the polynomial
+            coefficients = np.polyfit(X, y, degree)
+            coeff_str = ""
+            for k, coeff in enumerate(coefficients):
+                coeff_str += f"{coeff:.4f}x^{degree - k}"
+                if k < degree:
+                    coeff_str += " + "
+
+            # Generate fitted data
+            fitted_X = np.linspace(min(X), max(X), 100)
+            fitted_y = np.polyval(coefficients, fitted_X)
+            # Create a line plot for the fitted curve
+            fit_trace = go.Scatter(x=fitted_X, y=fitted_y, mode='lines',
+                                   name=f'Polynomial Degree '
+                                        f'{degree}: {coeff_str}')
+            if type_ == 'mean':
+                mean_fig.add_trace(fit_trace, row=mean_count, col=1)
+
+            if type_ == 'var':
+                var_fig.add_trace(fit_trace, row=var_count, col=1)
+
+            full_fig.add_trace(fit_trace)
+
+    # Update layout
+    full_fig.update_yaxes(title_text='Drug Rate')
+    mean_fig.update_yaxes(title_text='Drug Rate')
+    var_fig.update_yaxes(title_text='Drug Rate')
+    full_fig.update_xaxes(title_text='MAP')
+    mean_fig.update_xaxes(title_text='MAP')
+    var_fig.update_xaxes(title_text='MAP')
+
+    full_fig.update_layout(
+        height=300 * rows, width=2000,
+        title="Data with Fitted Curve",
+        showlegend=True
+    )
+    mean_fig.update_layout(
+        height=300 * rows, width=1500,
+        title="Mean of Data with Fitted Curve",
+        showlegend=True
+    )
+    var_fig.update_layout(
+        height=3000, width=1500,
+        title="Var Of Data with Fitted Curve",
+        showlegend=True
+    )
+
+    # Show the plot
+    full_fig.write_html(f'graphs/fitted-curves/full_{file_name}.html')
+    mean_fig.write_html(f'graphs/fitted-curves/mean_{file_name}.html')
+    var_fig.write_html(f'graphs/fitted-curves/var_{file_name}.html')
