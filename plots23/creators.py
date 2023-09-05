@@ -2,40 +2,24 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from FinalProjDS.plots23.spliters import apply_split_functions
+from FinalProjDS.plots23.spliters import apply_split_functions, \
+    group_by_sections_mean_std
 
 BP_RANGES = ((0, 49), (50, 59), (60, 64), (65, 69), (70, 74), (75, 79),
              (80, 89), (90, 200))
 X_BIN_SIZE = 1
 Y_BIN_SIZE = 1
-Y_START = {1: 0.5, 2: 0.85, 8: 0.96, 16: 0.985}
+Y_START = {1: 0.5, 2: 0.85, 3: 0.9, 6: 0.95, 8: 0.96, 16: 0.985}
 
 
-# helper function to create plot of nor vs map as heatmap and as scatter plot
-# for peaks
-def plot_nor_vs_map(df, x_bin_size, y_bin_size, j, rows, y_start):
-    map_ = df['cur_bp']
-    rate = df['drugrate']
-    length = 0.7 / rows
-    y_h = y_start - j / (rows - 0.5)
-    # Compute the 2D histogram using numpy.histogram2d
+def get_peak_scatter(map_, rate, max_x, length, colorbar_y, colorbar_x=1.1,
+                     transpose=False):
     hist, x_edges, y_edges = np.histogram2d(
         map_, rate,
         bins=[
-            np.arange(min(map_), 80 + x_bin_size, x_bin_size),
-            np.arange(min(rate), max(rate) + y_bin_size, y_bin_size)
+            np.arange(min(map_), max_x + X_BIN_SIZE, X_BIN_SIZE),
+            np.arange(min(rate), max(rate) + Y_BIN_SIZE, Y_BIN_SIZE)
         ])
-
-    # Create the go.Histogram2d object
-    histogram = go.Histogram2d(
-        x=map_,
-        y=rate,
-        xbins=dict(start=min(map_), end=max(map_), size=x_bin_size),
-        ybins=dict(start=min(rate), end=max(rate), size=y_bin_size),
-        z=hist,  # Assign the histogram counts to the 'z' property
-        colorscale='Viridis',
-        colorbar=dict(thickness=15, x=-0.1, y=y_h, len=length))
-
     # Find and plot max map bin for each nor rate
     max_x_bins = np.argmax(hist, axis=0)
     nor_rate_list = []
@@ -60,27 +44,54 @@ def plot_nor_vs_map(df, x_bin_size, y_bin_size, j, rows, y_start):
     hover_text = [f'X: {x_val}<br>Y: {y_val}<br>z: {color_val:.2f}%' for
                   x_val, y_val, color_val in
                   zip(map_list, nor_rate_list, color_list)]
+    if transpose:
+        map_list, nor_rate_list = nor_rate_list, map_list
+    scatter = go.Scatter(x=map_list,
+                         y=nor_rate_list,
+                         mode='markers',
+                         marker=dict(color=color_list,
+                                     colorscale='YlGnBu',
+                                     colorbar=dict(title='Percentage',
+                                                   thickness=15,
+                                                   len=length,
+                                                   x=colorbar_x,
+                                                   y=colorbar_y
+                                                   )),
+                         hovertext=hover_text,
+                         hoverinfo='text')
 
-    peak_scatter = go.Scatter(x=map_list,
-                              y=nor_rate_list,
-                              mode='markers',
-                              marker=dict(color=color_list,
-                                          colorscale='YlGnBu',
-                                          colorbar=dict(title='Percentage',
-                                                        thickness=15,
-                                                        len=length,
-                                                        x=1.1,
-                                                        y=y_h
-                                                        )),
-                              hovertext=hover_text,
-                              hoverinfo='text')
+    return hist, scatter
+
+
+# helper function to create plot of nor vs map as heatmap and as scatter plot
+# for peaks
+def plot_nor_vs_map(df, x_bin_size, y_bin_size, j, rows, max_x):
+    map_ = df['cur_bp']
+    rate = df['drugrate']
+    length = 0.7 / rows
+    colorbar_y = Y_START[rows] - j / (rows - 0.5)
+    # Compute the 2D histogram using numpy.histogram2d
+    hist, peak_scatter = get_peak_scatter(map_, rate, max_x, length,
+                                          colorbar_y)
+
+    # Create the go.Histogram2d object
+    histogram = go.Histogram2d(
+        x=map_,
+        y=rate,
+        xbins=dict(start=min(map_), end=max(map_) + x_bin_size,
+                   size=x_bin_size),
+        ybins=dict(start=min(rate), end=max(rate) + y_bin_size,
+                   size=y_bin_size),
+        z=hist,  # Assign the histogram counts to the 'z' property
+        colorscale='Viridis',
+        colorbar=dict(thickness=15, x=-0.1, y=colorbar_y, len=length))
 
     return histogram, peak_scatter
 
 
 # create plot of nor vs map as heatmap and as scatter plot for peaks for each
 # subgroup of the data
-def heatmap_and_peak_scatter(df, file_name, split_funcs,
+def heatmap_and_peak_scatter(df, file_name, split_funcs, max_x,
                              title='', x_bin_size=X_BIN_SIZE,
                              y_bin_size=Y_BIN_SIZE):
     dfs, titles = apply_split_functions(df, split_funcs)
@@ -95,12 +106,12 @@ def heatmap_and_peak_scatter(df, file_name, split_funcs,
 
     for i in range(len(titles)):
         heatmap, scatter = plot_nor_vs_map(dfs[i], x_bin_size, y_bin_size, i,
-                                           n, Y_START[n])
+                                           n, max_x)
         fig.add_trace(heatmap, row=i + 1, col=1)
         fig.add_trace(scatter, row=i + 1, col=2)
 
     fig.update_xaxes(title_text='MAP')
-    fig.update_xaxes(tickmode='linear', dtick=1, range=[55, 80], col=2)
+    fig.update_xaxes(tickmode='linear', dtick=1, range=[55, max_x], col=2)
     fig.update_yaxes(title_text='NOR RATE', tickmode='linear', dtick=5, col=2)
     fig.update_layout(showlegend=False,
                       title_text=f'Heatmap of MAP VS NOR RATE With Scatter '
@@ -157,7 +168,67 @@ def corr_plot(data, file_name, split_funcs, title):
 
 
 # Create scatter plot of data with fitted polynomial of selected degrees
-def poly_fit_plot(data, file_name, split_funcs, degrees):
+def poly_fit_plot(data, file_name, split_funcs, degrees, max_x=None, peak=False):
+    if peak:
+        # do somthing
+        get_peak_curve(data, file_name, split_funcs, degrees, max_x)
+    else:
+        split_funcs.append(group_by_sections_mean_std)
+        mean_var_curves(data, file_name, split_funcs, degrees, )
+
+
+def get_fit_trace(coefficients, degree, X):
+    coeff_str = ""
+    for k, coeff in enumerate(coefficients):
+        coeff_str += f"{coeff:.4f}x^{degree - k}"
+        if k < degree:
+            coeff_str += " + "
+
+    # Generate fitted data
+    fitted_X = np.linspace(min(X), max(X), 100)
+    fitted_y = np.polyval(coefficients, fitted_X)
+    # Create a line plot for the fitted curve
+    fit_trace = go.Scatter(x=fitted_X, y=fitted_y, mode='lines',
+                           name=f'Polynomial Degree '
+                                f'{degree}:<br>{coeff_str}')
+    return fit_trace
+
+
+def get_peak_curve(data, file_name, split_funcs, degrees, max_x):
+    dfs, titles = apply_split_functions(data, split_funcs)
+    rows = len(titles)
+    length =  0.7 / rows
+    peak_fig = make_subplots(rows, 1, subplot_titles=titles)
+    peak_fig.update_layout(height=400 * rows, width=1500)
+
+    for i, df in enumerate(dfs):
+        y = df['cur_bp'].values.astype(np.float64)
+        X = df['drugrate'].values.astype(np.float64)
+        colorbar_y = Y_START[rows] - i / (rows - 0.5)
+        hist, data_trace = get_peak_scatter(y, X, max_x,length,
+                                            colorbar_y, 1, transpose=True)
+        data_trace.name = titles[i]
+        peak_fig.add_trace(data_trace, row=i+1, col=1)
+
+        weights = data_trace.marker.color
+        for degree in degrees:
+            # Fit the polynomial
+            coefficients = np.polyfit(data_trace.x, data_trace.y, degree)
+            fit_trace = get_fit_trace(coefficients, degree, X)
+            peak_fig.add_trace(fit_trace, row=i+1, col=1)
+
+    peak_fig.update_yaxes(title_text='MAP', tickmode='linear', dtick=5,
+                          range=[55, max_x])
+    peak_fig.update_xaxes(title_text='NOR RATE', tickmode='linear', dtick=5,)
+    peak_fig.update_layout(
+        title="Map Peak For Each NOR Rate with Fitted Curve",
+        showlegend=True,
+        legend=dict(x=1.1),
+    )
+    peak_fig.write_html(f'graphs/fitted-curves/peak_{file_name}.html')
+
+
+def mean_var_curves(data, file_name, split_funcs, degrees):
     dfs, titles = apply_split_functions(data, split_funcs)
     rows = len(titles)
     mean_fig = make_subplots(rows, 1, subplot_titles=titles)
@@ -187,22 +258,9 @@ def poly_fit_plot(data, file_name, split_funcs, degrees):
         if df.shape[0] == 0:
             continue
         for degree in degrees:
-            print(degree)
             # Fit the polynomial
             coefficients = np.polyfit(X, y, degree)
-            coeff_str = ""
-            for k, coeff in enumerate(coefficients):
-                coeff_str += f"{coeff:.4f}x^{degree - k}"
-                if k < degree:
-                    coeff_str += " + "
-
-            # Generate fitted data
-            fitted_X = np.linspace(min(X), max(X), 100)
-            fitted_y = np.polyval(coefficients, fitted_X)
-            # Create a line plot for the fitted curve
-            fit_trace = go.Scatter(x=fitted_X, y=fitted_y, mode='lines',
-                                   name=f'Polynomial Degree '
-                                        f'{degree}: {coeff_str}')
+            fit_trace = get_fit_trace(coefficients, degree, X)
             if type_ == 'mean':
                 mean_fig.add_trace(fit_trace, row=mean_count, col=1)
 
@@ -230,7 +288,7 @@ def poly_fit_plot(data, file_name, split_funcs, degrees):
         showlegend=True
     )
     var_fig.update_layout(
-        height=3000, width=1500,
+        height=300*rows, width=1500,
         title="Var Of Data with Fitted Curve",
         showlegend=True
     )
