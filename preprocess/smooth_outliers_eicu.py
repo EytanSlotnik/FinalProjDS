@@ -294,7 +294,70 @@ def filter_by_nor(bp_df, break_size=30, min_hrs_to_nor=12, max_hrs_from_admissio
 
 
 def load_bp_salz(bp_max=160, bp_min=30):
+    d703 = pd.read_csv('data_float_m_703.csv')
+    d703 = d703[d703['Offset'] % 300 == 0]
+    d703 = d703[d703['Offset'] <= 172800]
+
+    d_cases = pd.read_csv('cases.csv.gz', compression='gzip')
+    d_cases['WeightOnAdmission'] /= 1000
+
+    medication = pd.read_csv('medication.csv.gz', compression='gzip')
+    vas = medication[medication['DrugID'] == 1550]
+    vas_ids = list(vas['CaseID'].unique())
+    dop = medication[medication['DrugID'] == 1618]
+    dop_ids = list(dop['CaseID'].unique())
+    epi = medication[medication['DrugID'] == 1502]
+    epi_ids = list(epi['CaseID'].unique())
+
+    other_drugs_ids = list(set(vas_ids + dop_ids + epi_ids))
+    d1562 = medication[medication['DrugID'] == 1562]
+    d1562 = d1562[d1562['OffsetDrugEnd'] <= 172800]
+    d1562 = d1562[~d1562['CaseID'].isin(other_drugs_ids)]
+
+    d1562 = medication[medication['DrugID'] == 1562]
+    d1562 = d1562[d1562['OffsetDrugEnd'] <= 172800]
+
+    id_weight_dict = dict(zip(d_cases['CaseID'], d_cases['WeightOnAdmission']))
+    pat_at_stage['with NOR'] = d1562['CaseID'].nunique()
+    intersection_ids = list(set(d703['CaseID'].unique()).intersection(d1562['CaseID'].unique()))
+
+    # Create a boolean mask to filter rows from d703 and d1562
+    mask1 = d703['CaseID'].isin(intersection_ids)
+    mask2 = d1562['CaseID'].isin(intersection_ids)
+
+    # Apply the boolean mask to filter rows from d703 and d1562
+    df1 = d703.loc[mask1, ['CaseID', 'Offset', 'Val']]
+    df2 = d1562.loc[mask2, ['CaseID', 'Offset', 'OffsetDrugEnd', 'AmountPerMinute']]
+
+    # Concatenate df1 and df2
+    df3 = pd.concat([df1, df2], axis=0)
+
+    # Concatenate df3 with df4
+    df3.reset_index(drop=True, inplace=True)
+
+    df3['Offset'] /= 60
+    df3['OffsetDrugEnd'] /= 60
+    df3['AmountPerMinute'] *= 1000000
+
+    df3.rename(columns={
+        'CaseID': 'stay_id',
+        'Val': 'cur_bp',  # Rename 'Val' to 'Value'
+        'Offset': 'cur_bp_time',  # Rename 'Drug Rate' to 'Rate'
+        'AmountPerMinute': 'drugrate'  # Rename 'Offset' to 'Offset Range'
+    }, inplace=True)
+
+    death_dict = {2202: 'ICU survivor', 2212: 'Unknown', 2215: 'ICU non-survivor'}
+    death_per_pat_dict = dict(zip(d_cases['CaseID'], d_cases['DischargeState']))
+
+    df3['DischargeState'] = df3['stay_id'].map(death_per_pat_dict)
+    df3['DischargeState'] = df3['DischargeState'].map(death_dict)
+
+    df3['weight'] = df3['stay_id'].map(id_weight_dict)
+
+    df3.to_csv('five_minutes_resolution.csv', index=False)
+
     bp_df = pd.read_csv('five_minutes_resolution.csv')
+    pat_at_stage['with only NOR'] =  bp_df.stay_id.nunique()
     bp_df = bp_df.sort_values(['stay_id', 'cur_bp_time'])
     # print(bp_df.drugrate.isna().sum())
     bp_df['drugrate'] = bp_df.groupby('stay_id')['drugrate'].transform(lambda x: x.ffill())
@@ -315,10 +378,55 @@ def load_bp_salz(bp_max=160, bp_min=30):
 
 global pat_at_stage
 if __name__ == "__main__":
-    pat_at_stage = {}
-    big_bp = load_bp(num_of_pats=0)
-    big_bp = filter_by_nor(big_bp, break_size=30)
+    # pat_at_stage = {}
+    # big_bp = load_bp(num_of_pats=0)
+    # big_bp = filter_by_nor(big_bp, break_size=30)
+    #
+    # # make bar plot of the amount of patients at each stage with sorted values using plotly
+    # pat_at_stage = pd.DataFrame.from_dict(pat_at_stage, orient='index', columns=['Amount of Patients'])
+    # pat_at_stage = pat_at_stage.sort_values(by='Amount of Patients', ascending=False)
+    #
+    # fig = go.Figure()
+    # fig.add_trace(go.Bar(x=pat_at_stage.index, y=pat_at_stage['Amount of Patients']))
+    # # add value labels on top of the bars and make them bigger
+    # fig.update_traces(texttemplate='%{y}', textposition='outside', textfont_size=20)
+    # fig.update_layout(uniformtext_minsize=20, uniformtext_mode='hide')
+    #
+    # fig.update_layout(uniformtext_minsize=8, uniformtext_mode='hide')
+    # # fig.update_layout(title_text='Amount of Patients at Each Stage', title_x=0.5)
+    # fig.update_layout(xaxis_title='Stage', yaxis_title='Amount of Patients')
+    # # make fig size  big enough to show all labels horizontally
+    # fig.update_layout(height=1000, width=1500)
+    # # make the labels horizontal
+    # fig.update_xaxes(tickangle=0)
+    # # make tick labels bigger
+    # fig.update_layout(xaxis=dict(tickfont=dict(size=20)))
+    # fig.update_layout(yaxis=dict(tickfont=dict(size=20)))
+    #
+    # # make bar width bigger
+    # fig.update_traces(marker=dict(line=dict(width=4)))
+    #
+    # # make axis titles bigger
+    # fig.update_layout(xaxis=dict(title=dict(font=dict(size=20))))
+    # fig.update_layout(yaxis=dict(title=dict(font=dict(size=20))))
+    #
+    # fig.show()
+    #
+    # fig.write_html("../preprocess/patients_at_each_stage.html")
+    # fig.write_image("../preprocess/patients_at_each_stage.png")
+    #
+    # big_bp = remove_one_time_jumps(big_bp)
+    #
+    # big_bp = smooth_outliers(big_bp, threshold_constant=1.5)
+    # for i in range(2, 11):
+    #     big_bp = add_rolling_statistics(big_bp, window_size=i)
+    #
+    # big_bp.to_csv("../preprocess/smooth_bp_eicu2.csv", index=False)
 
+    pat_at_stage = {}
+
+    big_bp_salz = load_bp_salz()
+    big_bp_salz = filter_by_nor(big_bp_salz, break_size=30)
     # make bar plot of the amount of patients at each stage with sorted values using plotly
     pat_at_stage = pd.DataFrame.from_dict(pat_at_stage, orient='index', columns=['Amount of Patients'])
     pat_at_stage = pat_at_stage.sort_values(by='Amount of Patients', ascending=False)
@@ -347,25 +455,11 @@ if __name__ == "__main__":
     fig.update_layout(xaxis=dict(title=dict(font=dict(size=20))))
     fig.update_layout(yaxis=dict(title=dict(font=dict(size=20))))
 
-
     fig.show()
 
-    fig.write_html("../preprocess/patients_at_each_stage.html")
-    fig.write_image("../preprocess/patients_at_each_stage.png")
+    fig.write_html("../preprocess/patients_at_each_stage_zalz.html")
+    fig.write_image("../preprocess/patients_at_each_stage_zalz.png")
 
-    big_bp = remove_one_time_jumps(big_bp)
-
-    big_bp = smooth_outliers(big_bp, threshold_constant=1.5)
-    for i in range(2, 11):
-        big_bp = add_rolling_statistics(big_bp, window_size=i)
-
-    big_bp.to_csv("../preprocess/smooth_bp_eicu2.csv", index=False)
-
-
-    pat_at_stage = {}
-
-    big_bp_salz = load_bp_salz()
-    big_bp_salz = filter_by_nor(big_bp_salz, break_size=30)
     big_bp_salz = remove_one_time_jumps(big_bp_salz)
     big_bp_salz = smooth_outliers(big_bp_salz, threshold_constant=1.5)
     for i in range(2, 11):
