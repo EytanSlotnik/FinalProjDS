@@ -294,7 +294,7 @@ def filter_by_nor(bp_df, break_size=30, min_hrs_to_nor=12, max_hrs_from_admissio
 
 
 def load_bp_salz(bp_max=160, bp_min=30):
-    bp_df = pd.read_csv('../saltburd_data/Salzburg_MAP_NOR_merged.csv')
+    bp_df = pd.read_csv('five_minutes_resolution.csv')
     bp_df = bp_df.sort_values(['stay_id', 'cur_bp_time'])
     # print(bp_df.drugrate.isna().sum())
     bp_df['drugrate'] = bp_df.groupby('stay_id')['drugrate'].transform(lambda x: x.ffill())
@@ -353,20 +353,22 @@ if __name__ == "__main__":
     fig.write_html("../preprocess/patients_at_each_stage.html")
     fig.write_image("../preprocess/patients_at_each_stage.png")
 
-    # big_bp = remove_one_time_jumps(big_bp)
-    #
-    # big_bp = smooth_outliers(big_bp, threshold_constant=1.5)
-    # for i in range(2, 11):
-    #     big_bp = add_rolling_statistics(big_bp, window_size=i)
-    #
-    # big_bp.to_csv("../preprocess/smooth_bp_eicu2.csv", index=False)
+    big_bp = remove_one_time_jumps(big_bp)
 
-    # big_bp_salz = load_bp_salz()
-    # big_bp_salz = pd.read_csv('../preprocess/smooth_bp_salz.csv')
-    # # big_bp_salz = filter_by_nor(big_bp_salz, break_size=30)
-    # # big_bp_salz = remove_one_time_jumps(big_bp_salz)
-    # # big_bp_salz = smooth_outliers(big_bp_salz, threshold_constant=1.5)
-    # for i in range(2, 11):
-    #     big_bp_salz = add_rolling_statistics(big_bp_salz, window_size=i)
-    #
-    # big_bp_salz.to_csv("../preprocess/smooth_bp_salz.csv", index=False)
+    big_bp = smooth_outliers(big_bp, threshold_constant=1.5)
+    for i in range(2, 11):
+        big_bp = add_rolling_statistics(big_bp, window_size=i)
+
+    big_bp.to_csv("../preprocess/smooth_bp_eicu2.csv", index=False)
+
+
+    pat_at_stage = {}
+
+    big_bp_salz = load_bp_salz()
+    big_bp_salz = filter_by_nor(big_bp_salz, break_size=30)
+    big_bp_salz = remove_one_time_jumps(big_bp_salz)
+    big_bp_salz = smooth_outliers(big_bp_salz, threshold_constant=1.5)
+    for i in range(2, 11):
+        big_bp_salz = add_rolling_statistics(big_bp_salz, window_size=i)
+
+    big_bp_salz.to_csv("../preprocess/smooth_bp_salz.csv", index=False)
