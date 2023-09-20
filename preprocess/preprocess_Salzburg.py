@@ -54,6 +54,17 @@ d_cases = pd.read_csv('cases.csv.gz', compression='gzip')
 d_cases['WeightOnAdmission'] /= 1000
 
 medication = pd.read_csv('medication.csv.gz', compression='gzip')
+vas = medication[medication['DrugID'] == 1550]
+vas_ids = list(vas['CaseID'].unique())
+dop = medication[medication['DrugID'] == 1618]
+dop_ids = list(dop['CaseID'].unique())
+epi = medication[medication['DrugID'] == 1502]
+epi_ids = list(epi['CaseID'].unique())
+
+other_drugs_ids = list(set(vas_ids + dop_ids + epi_ids))
+d1562 = medication[medication['DrugID'] == 1562]
+d1562 = d1562[d1562['OffsetDrugEnd'] <= 172800]
+d1562 = d1562[~d1562['CaseID'].isin(other_drugs_ids)]
 
 
 d1562 = medication[medication['DrugID'] == 1562]
