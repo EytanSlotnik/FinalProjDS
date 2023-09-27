@@ -3,6 +3,25 @@ import pandas as pd
 from FinalProjDS.plots23.creators import *
 from sklearn.linear_model import LinearRegression
 
+file_names = {
+    'poly_fit': 'poly_fit',
+    'heatmap': 'heatmap',
+    'corr': 'corr',
+    'changes': 'changes',
+    'unit': 'unit',
+    'norm': 'norm',
+    'sal': 'sal/'
+
+}
+titles = {
+    'poly_fit': 'Map Peak For Each NOR Rate with Fitted Curve',
+    'unit': 'By Unit',
+    'changes': 'For Change In Rate With Direction',
+    'corr': 'Correlation Heatmap',
+    'filtered': 'For Filtered: Drugrate (1-50) MAP (30-',
+    'norm': '(Normalized NOR Rate)'
+}
+
 
 # Function to remove top 10% of measurements for each patient,
 def remove_top_10_percent(group):
@@ -18,102 +37,162 @@ def filter_map(data, min_, max_):
     return data[(data['cur_bp'] < max_) & (data['cur_bp'] > min_)]
 
 
+def normalize_weight(df):
+    patient_weights = df[['stay_id', 'admissionweight']]
+    clean = patient_weights.dropna()
+    cleaner = clean.drop_duplicates('stay_id')
+    df = df[df['stay_id'].isin(cleaner['stay_id'])]
+    df.drop('admissionweight', axis=1, inplace=True)
+    df = df.merge(cleaner, on='stay_id', how='left')
+    df['drugrate'] /= df['admissionweight']
+    np.round(df['drugrate'], 2)
+    return df
+
+
+def generate_sal_plots(df, max_xs, min_y, file_name):
+    for max_x in max_xs:
+        filtered_drugrate = filter_drugrate(df, min_y, 50)
+        filtered_map = filter_map(filtered_drugrate, 30, max_x)
+        heatmap_and_peak_scatter(filtered_map,
+                                 f"{file_name}_"
+                                 f"{file_names['heatmap']}_"
+                                 f"{file_names['unit']}_"
+                                 f"{file_names['changes']}_"
+                                 f"{str(max_x)}",
+                                 [
+                                     get_bp_by_nor_change_with_direction,
+                                     # get_bp_by_unit
+                                 ],
+                                 max_x,
+                                 )
+
+        corr_plot(filtered_map,
+                  f"{file_name}_"
+                  f"{file_names['corr']}_"
+                  f"{file_names['unit']}_"
+                  f"{file_names['changes']}_"
+                  f"{str(max_x)}",
+                  [
+                      get_bp_by_nor_change_with_direction,
+                      # get_bp_by_unit
+                  ],
+                  max_x,
+                  f"{titles['corr']} "
+                  f"{titles['filtered']}{str(max_x)} "
+                  f"{titles['unit']} "
+                  f"{titles['changes']}")
+
+        corr_plot(filtered_map,
+                  f"{file_name}_"
+                  f"{file_names['corr']}_"
+                  f"{str(max_x)}",
+                  [default_spliter],
+                  max_x,
+                  f"{titles['corr']} "
+                  f"{titles['filtered']}{str(max_x)}")
+
+
+def generate_plots(df, max_xs, normalize, sal):
+    min_y = 1
+    file_name = ''
+    if normalize:
+        min_y = 0.05
+        df = normalize_weight(df)
+        file_name = file_names['norm']
+    if sal:
+        file_name = f"{file_names['sal']}" + file_name
+        generate_sal_plots(df, max_xs, min_y, file_name)
+    else:
+        for max_x in max_xs:
+            filtered_drugrate = filter_drugrate(df, min_y, 50)
+            filtered_map = filter_map(filtered_drugrate, 30, max_x)
+            # drugrate_hist(filtered_map, max_x, 0.1)
+            # drugrate_hist(filtered_map, max_x, 0.05)
+
+            poly_fit_plot(filtered_map,
+                          f"{file_name}_"
+                          f"{file_names['poly_fit']}_"
+                          f"{file_names['unit']}_"
+                          f"{file_names['changes']}_"
+                          f"{str(max_x)}",
+                          [get_bp_by_nor_change_with_direction,
+                           get_bp_by_unit],
+                          [1, 2, 3],
+                          titles['poly_fit'],
+                          max_x,
+                          peak=True,
+                          weighted=False,
+                          )
+            # poly_fit_plot(filtered_map,
+            #               file_names['poly_fit'],
+            #               [get_bp_by_nor_change_with_direction,
+            #                get_bp_by_unit],
+            #               [1],
+            #               titles['poly_fit'],
+            #               max_x,
+            #               peak=True,
+            #               weighted=True,
+            #               )
+
+            # heatmap_and_peak_scatter(filtered_map,
+            #                          f"{file_name}_"
+            #                          f"{file_names['heatmap']}_"
+            #                          f"{file_names['unit']}_"
+            #                          f"{file_names['changes']}_"
+            #                          f"{str(max_x)}",
+            #                          [
+            #                              get_bp_by_nor_change_with_direction,
+            #                              get_bp_by_unit
+            #                          ],
+            #                          max_x,
+            #                          )
+
+            # corr_plot(filtered_map,
+            #           f"{file_name}_"
+            #           f"{file_names['corr']}_"
+            #           f"{file_names['unit']}_"
+            #           f"{file_names['changes']}_"
+            #           f"{str(max_x)}",
+            #           [
+            #               get_bp_by_nor_change_with_direction,
+            #            get_bp_by_unit
+            #           ],
+            #           max_x,
+            #           f"{titles['corr']} "
+            #           f"{titles['filtered']}{str(max_x)} "
+            #           f"{titles['unit']} "
+            #           f"{titles['changes']}")
+            #
+            # corr_plot(filtered_map,
+            #           f"{file_name}_"
+            #           f"{file_names['corr']}_"
+            #           f"{file_names['unit']}_"
+            #           f"{str(max_x)}",
+            #           [get_bp_by_unit],
+            #           max_x,
+            #           f"{titles['corr']} "
+            #           f"{titles['filtered']}{str(max_x)} "
+            #           f"{titles['unit']}")
+            #
+            # corr_plot(filtered_map,
+            #           f"{file_name}_"
+            #           f"{file_names['corr']}_"
+            #           f"{str(max_x)}",
+            #           [default_spliter],
+            #           max_x,
+            #           f"{titles['corr']} "
+            #           f"{titles['filtered']}{str(max_x)}")
+
+
 if __name__ == "__main__":
     bp = pd.read_csv('../preprocess/smooth_bp_eicu2.csv')
-    max_x = 70
-    # Should be part of the general filtering
+    # bp['cur_bp'] = bp['otj_filter']
+    # print(bp['cur_bp'].isna().sum(), bp.shape)
     bp['drugrate'] = bp['drugrate'].fillna(0)  # fill na with 0
-    # remove patients that didn't receive any Nor
-    no_nor = (
-        bp.groupby('stay_id').apply(lambda x: (x['drugrate']).sum() == 0))
-    no_nor = no_nor[no_nor].index.tolist()
-    bp = bp[~bp['stay_id'].isin(no_nor)]
-    # remove top 10 percent of drugrate per patient
-    grouped = bp.groupby('stay_id')
-    filtered_bp = grouped.apply(remove_top_10_percent)
-    filtered_bp.reset_index(drop=True, inplace=True)
-    # filter drugrate
-    filtered_drugrate = filter_drugrate(filtered_bp, 1, 50)
-    filtered_map = filter_map(filtered_drugrate, 30, max_x)
-
-    # poly_fit_plot(filtered_map, 'binned_poly_fit',
-    #               [
-    #                   group_by_sections_mean_std],
-    #               [2, 3])
-
-    # poly_fit_plot(filtered_map, 'binned_unit_poly_fit',
-    #               [
-    #                   get_bp_by_unit, group_by_sections_mean_std],
-    #               [2, 3])
-
-    poly_fit_plot(filtered_map, f'flipped_unit_change_direction_poly_fit_{max_x}',
-                  [
-                     get_bp_by_nor_change_with_direction, get_bp_by_unit
-                  ],
-                  [1, 2, 3], max_x, peak=True)
-
-    # plots:
-    # heatmap_and_peak_scatter(filtered_map,
-    #                          'MAP_NOR_heatmap_all',
-    #                          [default_spliter])
-    # heatmap_and_peak_scatter(filtered_map,
-    #                          'MAP_NOR_heatmap_unit',
-    #                          [get_bp_by_unit],
-    #                          title='by Units')
-    # heatmap_and_peak_scatter(filtered_map,
-    #                          'all_changes_heatmap',
-    #                          [get_bp_by_nor_change],
-    #                          title='for Change in Rate')
-    # heatmap_and_peak_scatter(filtered_map,
-    #                          f'heatmap_changes_direction_unit_{max_x}',
-    #                          [get_bp_by_nor_change_with_direction,
-    #                           get_bp_by_unit],
-    #                          max_x,
-    #                          title='By Unit For Change In Rate With Direction',
-    #                          )
-    # box_plot(filtered_drugrate,
-    #          'filtered_drug_rate_binned_bar_box',
-    #          [get_bp_by_sections],
-    #          'Binned MAP With Boxplot for Matching Drugrate (1-50)')
-    # box_plot(filtered_bp,
-    #          'binned_bar_box',
-    #          [get_bp_by_sections],
-    #          'Binned MAP With Boxplot for Matching Drugrate')
-    # # Correlation map vs nor for all data binned by bp ranges
-    # corr_plot(filtered_bp,
-    #           'binned_corr_heatmap_1',
-    #           [get_bp_by_sections],
-    #           'Correlation Heatmap For All data')
-    # # # Correlation map vs nor for filtered drugrate 1- 50 binned by bp ranges
-    # corr_plot(filtered_drugrate,
-    #           'filtered_binned_corr_heatmap_1',
-    #           [get_bp_by_sections],
-    #           'Correlation Heatmap For Filtered Drugrate (1-50)')
-    # # # Correlation Heatmap For All Data Points Where Drugrate Was Changed
-    # corr_plot(filtered_bp,
-    #           'all_changes_corr_heatmap_with_direction_1',
-    #           [get_bp_by_nor_change_with_direction],
-    #           'Correlation Heatmap For All Data Points Where Drugrate Was '
-    #           'Changed')
-    # # # Correlation Heatmap split by units
-    # corr_plot(filtered_bp,
-    #           'units_corr_heatmap_1',
-    #           [get_bp_by_unit],
-    #           'Correlation Heatmap For Each Unit')
-    # # # Correlation Heatmap for filtered drugrate 1- 50 split by units
-    # corr_plot(filtered_bp,
-    #           'units_filtered_corr_heatmap_1',
-    #           [get_bp_by_unit],
-    #           'Correlation Heatmap For Each Unit For Filtered Drugrate (1-50)')
-    # Correlation map vs nor for all data binned by bp ranges
-    # corr_plot(filtered_bp,
-    #           'corr_heatmap_unit_direction',
-    #           [get_bp_by_unit, get_bp_by_nor_change_with_direction],
-    #           'Correlationn Heatmap By Unit And Change of Nor Rate With Direction')
-
-    # heatmap_and_peak_scatter(filtered_map,
-    #                          'MAP_NOR_heatmap_unit_changes_with_direction',
-    #                          [get_bp_by_unit,
-    #                           get_bp_by_nor_change_with_direction],
-    #                          title=
-    #                          '<br>by Units For Rows With Changes With Direction')
+    # generate_plots(bp, [70, 80], normalize=True, sal=False)
+    #
+    # sal_bp = pd.read_csv('../preprocess/smooth_bp_salz_small.csv')
+    # sal_bp['cur_bp'] = sal_bp['otj_filter']
+    # sal_bp['drugrate'] = sal_bp['drugrate'].fillna(0)  # fill na with 0
+    # generate_plots(sal_bp, [70, 80], normalize=True, sal=True)
+    create_patient_trajectories(bp, 10)

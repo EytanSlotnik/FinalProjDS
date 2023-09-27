@@ -8,8 +8,8 @@ from FinalProjDS.plots23.spliters import apply_split_functions, \
 BP_RANGES = ((0, 49), (50, 59), (60, 64), (65, 69), (70, 74), (75, 79),
              (80, 89), (90, 200))
 X_BIN_SIZE = 1
-Y_BIN_SIZE = 1
-Y_START = {1: 0.5, 2: 0.85, 3: 0.9, 6: 0.95, 8: 0.96, 16: 0.985}
+Y_BIN_SIZE = 0.05
+Y_START = {1: 0.5, 2: 0.85, 3: 0.9, 4: 0.92, 6: 0.95, 8: 0.96, 16: 0.985}
 
 
 def get_peak_scatter(map_, rate, max_x, length, colorbar_y, colorbar_x=1.1,
@@ -25,12 +25,11 @@ def get_peak_scatter(map_, rate, max_x, length, colorbar_y, colorbar_x=1.1,
     nor_rate_list = []
     map_list = []
     color_list = []
-    sum_bin = hist.sum(axis=0)
     sum_by_rate = np.sum(hist, axis=0)
     max_sum = 0
     # find the maximum x bin for each y bin
     for i, max_x_bin in enumerate(max_x_bins):
-        if sum_bin[i] == 0:
+        if sum_by_rate[i] == 0:
             continue
         nor_rate = np.round(y_edges[i], 2)
         map_val = np.round(x_edges[max_x_bin], 2)
@@ -52,10 +51,10 @@ def get_peak_scatter(map_, rate, max_x, length, colorbar_y, colorbar_x=1.1,
                          marker=dict(color=color_list,
                                      colorscale='YlGnBu',
                                      colorbar=dict(title='Percentage',
-                                                   thickness=15,
-                                                   len=length,
-                                                   x=colorbar_x,
-                                                   y=colorbar_y
+                                                   # thickness=15,
+                                                   # len=length,
+                                                   # x=colorbar_x,
+                                                   # y=colorbar_y
                                                    )),
                          hovertext=hover_text,
                          hoverinfo='text')
@@ -84,7 +83,11 @@ def plot_nor_vs_map(df, x_bin_size, y_bin_size, j, rows, max_x):
                    size=y_bin_size),
         z=hist,  # Assign the histogram counts to the 'z' property
         colorscale='Viridis',
-        colorbar=dict(thickness=15, x=-0.1, y=colorbar_y, len=length))
+        colorbar=dict(
+            # thickness=15,
+            x=-0.1, )
+        # y=colorbar_y, len=length)
+    )
 
     return histogram, peak_scatter
 
@@ -98,27 +101,32 @@ def heatmap_and_peak_scatter(df, file_name, split_funcs, max_x,
     n = len(titles)
     col1_title = 'Heatmap of MAP VS NOR Rate'
     col2_title = 'MAP Peak Per NOR Rate'
-    subplot_titles = [col1_title, col2_title] * n
+    subplot_titles = [col1_title, col2_title]
 
-    fig = make_subplots(n, 2, subplot_titles=subplot_titles,
-                        row_titles=titles)
-    fig.update_layout(height=400 * n, width=1000)
+    for i in range(n):
+        fig = make_subplots(1, 2, subplot_titles=subplot_titles)
 
-    for i in range(len(titles)):
         heatmap, scatter = plot_nor_vs_map(dfs[i], x_bin_size, y_bin_size, i,
                                            n, max_x)
-        fig.add_trace(heatmap, row=i + 1, col=1)
-        fig.add_trace(scatter, row=i + 1, col=2)
+        fig.add_trace(heatmap, row=1, col=1)
+        fig.add_trace(scatter, row=1, col=2)
 
-    fig.update_xaxes(title_text='MAP')
-    fig.update_xaxes(tickmode='linear', dtick=1, range=[55, max_x], col=2)
-    fig.update_yaxes(title_text='NOR RATE', tickmode='linear', dtick=5, col=2)
-    fig.update_layout(showlegend=False,
-                      title_text=f'Heatmap of MAP VS NOR RATE With Scatter '
-                                 f'of Peaks {title}')
-    # fig.update_layout(margin=dict(l=100, r=1000, t=100, b=20))
+        fig.update_xaxes(title_text='MAP')
+        fig.update_xaxes(tickmode='linear', dtick=1, range=[55, max_x], col=2)
+        fig.update_yaxes(title_text='NOR RATE', tickmode='linear',
+                         dtick=Y_BIN_SIZE * 5, col=2)
 
-    fig.write_html(f'graphs/heatmaps/{file_name}.html')
+        fig.update_layout(height=400, width=1000,
+                          showlegend=False,
+                          # title=dict(x=0.5, y=0.95),
+                          # title_text=f'Heatmap of MAP VS NOR RATE With Scatter '
+                          #            f'of Peaks:<br>{titles[i]}')
+                          )
+
+        fig.write_html(
+            f'graphs/heatmaps/html/{max_x}/{file_name}_bin_{Y_BIN_SIZE}_{i}.html')
+        fig.write_image(
+            f'graphs/heatmaps/img/{max_x}/{file_name}_bin_{Y_BIN_SIZE}_{i}.png')
 
 
 # Create bar plot of binned MAP with box plot of drugrate for each bin
@@ -140,95 +148,121 @@ def box_plot(data, file_name, split_funcs, title):
                       title=title)
 
     fig.write_html(f'graphs/boxPlots/{file_name}.html')
+    fig.write_image(f'graphs/boxPlots/{file_name}.png')
 
 
-def corr_plot(data, file_name, split_funcs, title):
+def corr_plot(data, file_name, split_funcs, max_x, title):
     # Create correlation heatmap of MAP and Drugrate for each sub df
     dfs, titles = apply_split_functions(data, split_funcs)
     rows = int(np.ceil(len(titles) / 2))
-    fig = make_subplots(rows, 2,
-                        subplot_titles=[f'Correlation for {m}' for m in titles]
+    cols = 2
+    if len(titles) == 1:
+        cols = 1
+    fig = make_subplots(rows, cols,
+                        subplot_titles=titles
                         )
     for i, df in enumerate(dfs):
         df = df[['cur_bp', 'drugrate']]
 
         correlation_matrix = df.corr()
+        cols = ['MAP', 'NOR<br>Rate']
         show = False
         if i == 0:
             show = True
         fig.add_trace(go.Heatmap(z=correlation_matrix.values,
-                                 x=correlation_matrix.columns,
-                                 y=correlation_matrix.columns,
+                                 x=cols,
+                                 y=cols,
                                  colorscale='Viridis',
                                  showscale=show),
                       row=i // 2 + 1, col=i % 2 + 1)
 
-    fig.update_layout(title=title)
-    fig.write_html(f'graphs/correlation-heatmaps/{file_name}.html')
 
+
+    # fig.update_layout(title=title)
+    fig.write_html(f'graphs/correlation-heatmaps/html/{max_x}/{file_name}.html')
+    fig.write_image(f'graphs/correlation-heatmaps/img/{max_x}/{file_name}.png')
 
 # Create scatter plot of data with fitted polynomial of selected degrees
-def poly_fit_plot(data, file_name, split_funcs, degrees, max_x=None, peak=False):
+def poly_fit_plot(data, file_name, split_funcs, degrees, title, max_x=None,
+                  peak=False, weighted=False):
     if peak:
-        # do somthing
-        get_peak_curve(data, file_name, split_funcs, degrees, max_x)
+        get_peak_curve(data, file_name, split_funcs, degrees, title, max_x,
+                       weighted)
     else:
         split_funcs.append(group_by_sections_mean_std)
-        mean_var_curves(data, file_name, split_funcs, degrees, )
+        mean_var_curves(data, file_name, split_funcs, degrees, title)
 
 
 def get_fit_trace(coefficients, degree, X):
     coeff_str = ""
     for k, coeff in enumerate(coefficients):
-        coeff_str += f"{coeff:.4f}x^{degree - k}"
+        coeff_deg = degree - k
+        if coeff_deg == 0:
+            coeff_str += f"{coeff:.2f}"
+        elif coeff_deg == 1:
+            coeff_str += f"{coeff:.2f}x"
+        else:
+            coeff_str += f"{coeff:.2f}x^{coeff_deg}"
         if k < degree:
             coeff_str += " + "
 
     # Generate fitted data
     fitted_X = np.linspace(min(X), max(X), 100)
     fitted_y = np.polyval(coefficients, fitted_X)
-    # Create a line plot for the fitted curve
+
     fit_trace = go.Scatter(x=fitted_X, y=fitted_y, mode='lines',
                            name=f'Polynomial Degree '
                                 f'{degree}:<br>{coeff_str}')
     return fit_trace
 
 
-def get_peak_curve(data, file_name, split_funcs, degrees, max_x):
+def get_peak_curve(data, file_name, split_funcs, degrees, title, max_x,
+                   weighted):
+    if weighted:
+        title += ' Weighted'
+        file_name = 'weighted_' + file_name
     dfs, titles = apply_split_functions(data, split_funcs)
     rows = len(titles)
-    length =  0.7 / rows
-    peak_fig = make_subplots(rows, 1, subplot_titles=titles)
-    peak_fig.update_layout(height=400 * rows, width=1500)
+    length = 0.7 / rows
 
     for i, df in enumerate(dfs):
+        peak_fig = go.Figure()
+        peak_fig.update_layout(height=400, width=1500)
         y = df['cur_bp'].values.astype(np.float64)
         X = df['drugrate'].values.astype(np.float64)
         colorbar_y = Y_START[rows] - i / (rows - 0.5)
-        hist, data_trace = get_peak_scatter(y, X, max_x,length,
+        hist, data_trace = get_peak_scatter(y, X, max_x, length,
                                             colorbar_y, 1, transpose=True)
         data_trace.name = titles[i]
-        peak_fig.add_trace(data_trace, row=i+1, col=1)
+        peak_fig.add_trace(data_trace)
 
-        weights = data_trace.marker.color
         for degree in degrees:
             # Fit the polynomial
-            coefficients = np.polyfit(data_trace.x, data_trace.y, degree)
-            fit_trace = get_fit_trace(coefficients, degree, X)
-            peak_fig.add_trace(fit_trace, row=i+1, col=1)
+            if weighted:
+                weights = data_trace.marker.color
+                coefficients = np.polyfit(data_trace.x, data_trace.y, degree,
+                                          w=weights)
 
-    peak_fig.update_yaxes(title_text='MAP', tickmode='linear', dtick=5,
-                          range=[55, max_x])
-    peak_fig.update_xaxes(title_text='NOR RATE', tickmode='linear', dtick=5,)
-    peak_fig.update_layout(
-        title="Map Peak For Each NOR Rate with Fitted Curve",
-        showlegend=True,
-        legend=dict(x=1.1),
-    )
-    peak_fig.write_html(f'graphs/fitted-curves/peak_{file_name}.html')
+            else:
+                coefficients = np.polyfit(data_trace.x, data_trace.y, degree)
+
+            fit_trace = get_fit_trace(coefficients, degree, data_trace.x)
+            peak_fig.add_trace(fit_trace)
+
+        peak_fig.update_yaxes(title_text='MAP', tickmode='linear', dtick=5,
+                              range=[55, max_x])
+        peak_fig.update_xaxes(title_text='NOR RATE', tickmode='linear',
+                              dtick=0.5, )
+        peak_fig.update_layout(
+            # title=title,
+            showlegend=True,
+            legend=dict(x=1.1),
+        )
+        peak_fig.write_html(f'graphs/fitted-curves/html/{max_x}/{file_name}_{i}.html')
+        peak_fig.write_image(f'graphs/fitted-curves/img/{max_x}/{file_name}_{i}.png')
 
 
-def mean_var_curves(data, file_name, split_funcs, degrees):
+def mean_var_curves(data, file_name, split_funcs, degrees, title):
     dfs, titles = apply_split_functions(data, split_funcs)
     rows = len(titles)
     mean_fig = make_subplots(rows, 1, subplot_titles=titles)
@@ -288,7 +322,7 @@ def mean_var_curves(data, file_name, split_funcs, degrees):
         showlegend=True
     )
     var_fig.update_layout(
-        height=300*rows, width=1500,
+        height=300 * rows, width=1500,
         title="Var Of Data with Fitted Curve",
         showlegend=True
     )
@@ -297,3 +331,69 @@ def mean_var_curves(data, file_name, split_funcs, degrees):
     full_fig.write_html(f'graphs/fitted-curves/full_{file_name}.html')
     mean_fig.write_html(f'graphs/fitted-curves/mean_{file_name}.html')
     var_fig.write_html(f'graphs/fitted-curves/var_{file_name}.html')
+
+
+def create_patient_trajectories(bp, trajectories):
+    patient_ids = bp["stay_id"].value_counts()[
+        bp["stay_id"].value_counts() > 0].index
+    i = 0
+    for pat in patient_ids:
+        data = bp[bp['stay_id'] == pat]
+        # Calculate the threshold value for the top 10 percent
+        threshold = data['drugrate'].quantile(0.9)
+        # Filter the DataFrame by excluding values above the threshold
+        data = data[data['drugrate'] <= threshold]
+        i = i + 1
+        if i > trajectories:
+            break
+        fig = make_subplots(specs=[[{'secondary_y': True}]])
+        # fig.add_trace(go.Scatter(x=data['cur_bp'], y=data['drugrate'],
+        #                          mode='markers+lines', name='MAP VS NOR'),
+        #               row=1, col=1, secondary_y=False)
+        fig.add_trace(
+            go.Scatter(x=data['cur_bp_time'], y=data['cur_bp'], mode='lines',
+                       name='MAP Over Time'), secondary_y=False)
+        fig.add_trace(
+            go.Scatter(x=data['cur_bp_time'], y=data['drugrate'], mode='lines',
+                       name='NOR Rate Over Time'),
+            secondary_y=True)
+
+        fig.update_layout(title=f'MAP Vs NOR Infusion Rate For StayId: {pat}')
+
+        fig.update_xaxes(title_text='Time')
+
+        fig.update_yaxes(title_text='MAP', secondary_y=False)
+        fig.update_yaxes(title_text='NOR RATE', secondary_y=True,
+                         showgrid=False)
+
+        fig.write_html(f'graphs/MAP-NOR-PAT/MAP-NOR-{pat}.html')
+        fig.write_image(f'graphs/MAP-NOR-PAT/MAP-NOR-{pat}.png')
+
+
+def drugrate_hist(df, max_x, bin_size):
+    day = 24 * 60
+    day1 = df[df['cur_bp_time'] < day]['drugrate']
+    print(day1.max())
+    day2 = df[df['cur_bp_time'] > day]['drugrate']
+    fig = go.Figure()
+    start = min(min(day1), min(day2))
+    end = max(max(day1), max(day2))
+
+    fig.add_trace(go.Histogram(x=day1,
+                               xbins=dict(start=start,
+                                          end=end,
+                                          size=bin_size),
+                               name='before 24 hours',
+                               histnorm='probability'))
+    fig.add_trace(go.Histogram(x=day2,
+                               xbins=dict(start=start,
+                                          end=end,
+                                          size=bin_size),
+                               name='after 24 hours',
+                               histnorm='probability'))
+
+    fig.update_layout(height=400, width=1000,
+                      xaxis=dict(tickangle=45),
+                      title=f'Hist With Bins of Size {bin_size} '
+                            f'drugrate greater then 0.05')
+    fig.write_image(f'graphs/hist/drug_rate_hist_{max_x}_bin_{bin_size}.png')

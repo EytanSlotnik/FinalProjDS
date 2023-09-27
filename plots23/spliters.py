@@ -13,7 +13,7 @@ def default_spliter(df, titles=None):
 # Split data into dfs by unit
 def get_bp_by_unit(df, titles=None):
     # units = df['unittype_x'].unique()
-    units = ['Med-Surg ICU', 'MICU', 'SICU']
+    units = ['Med-Surg ICU', 'MICU']
     by_unit = [df[df['unittype_x'] == unit] for unit in units]
     if titles:
         units = [unit + ' &<br>' + titles for unit in units]
